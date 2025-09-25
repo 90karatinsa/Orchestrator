@@ -20,9 +20,17 @@ export interface AppConfig {
   codexUiPassword?: string;
   tasksFile: string;
   prEvery: number;
-  batchSize: number;
+  batchMin: number;
+  batchMax: number;
+  batchStart: number;
   uiPollSeconds: number;
   globalTimeoutSeconds: number;
+  askRetryBackoffSeconds: number;
+  statusFallbackEnabled: boolean;
+  statusFallbackEveryPolls: number;
+  statusFallbackPrompt: string;
+  askEmptySkipRepo: boolean;
+  askRepoCooldownMinutes: number;
   qaEnabled: boolean;
   qaBuildCmd?: string;
   qaTestCmd?: string;
@@ -78,9 +86,25 @@ export async function loadConfig(): Promise<AppConfig> {
   const codexUiPassword = process.env.CODEX_UI_PASSWORD;
   const tasksFile = requireEnv('TASKS_FILE', path.join('tasks', 'todo.md'));
   const prEvery = parseNumber('PR_EVERY', 3);
-  const batchSize = parseNumber('BATCH_SIZE', 2);
+  const batchMin = parseNumber('BATCH_MIN', 1);
+  const batchMax = parseNumber('BATCH_MAX', 3);
+  if (batchMax < batchMin) {
+    throw new Error('BATCH_MAX must be greater than or equal to BATCH_MIN');
+  }
+  const batchStartFallback = Math.min(Math.max(2, batchMin), batchMax);
+  const batchStart = parseNumber('BATCH_START', batchStartFallback);
+  if (batchStart < batchMin || batchStart > batchMax) {
+    throw new Error('BATCH_START must fall between BATCH_MIN and BATCH_MAX');
+  }
   const uiPollSeconds = parseNumber('UI_POLL_SEC', 60);
   const globalTimeoutSeconds = parseNumber('GLOBAL_TIMEOUT_SEC', 900);
+  const askRetryBackoffSeconds = parseNumber('ASK_RETRY_BACKOFF_SEC', 300);
+  const statusFallbackEnabled = parseBoolean('STATUS_FALLBACK_ENABLED', true);
+  const statusFallbackEveryPolls = parseNumber('STATUS_FALLBACK_EVERY_POLLS', 3);
+  const statusFallbackPrompt =
+    process.env.STATUS_FALLBACK_PROMPT?.trim() || 'Lütfen kısa durum özeti ver: her görev için (+) ya da (-) işaretiyle bitip bitmediğini yaz.';
+  const askEmptySkipRepo = parseBoolean('ASK_EMPTY_SKIP_REPO', true);
+  const askRepoCooldownMinutes = parseNumber('ASK_REPO_COOLDOWN_MIN', 30);
   const qaEnabled = parseBoolean('QA_ENABLED', false);
   const qaBuildCmd = process.env.QA_BUILD_CMD;
   const qaTestCmd = process.env.QA_TEST_CMD;
@@ -114,9 +138,17 @@ export async function loadConfig(): Promise<AppConfig> {
     codexUiPassword,
     tasksFile,
     prEvery,
-    batchSize,
+    batchMin,
+    batchMax,
+    batchStart,
     uiPollSeconds,
     globalTimeoutSeconds,
+    askRetryBackoffSeconds,
+    statusFallbackEnabled,
+    statusFallbackEveryPolls,
+    statusFallbackPrompt,
+    askEmptySkipRepo,
+    askRepoCooldownMinutes,
     qaEnabled,
     qaBuildCmd,
     qaTestCmd,

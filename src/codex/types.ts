@@ -27,6 +27,7 @@ export interface CodexClient {
   runBatch(batch: TaskBatchItem[]): Promise<BatchExecutionResult>;
   createPr(summary: string, description: string): Promise<PullRequestResult>;
   ask(prompt: string): Promise<string>;
+  selectBranch(branch: string): Promise<void>;
   getActiveBranch(): Promise<string | undefined>;
   close(): Promise<void>;
 }
