@@ -1,0 +1,9 @@
+Mevcut listedeki tüm görevler tamamlandı. Lütfen aşağıdaki repo için yeni, anlamlı ve uygulanabilir görevler üret:
+
+Repo: {{repo}}
+Bağlam: {{context}}
+
+Yanıtı yalnızca aşağıdaki formatta ver:
+- [ ] Görev 1
+- [ ] Görev 2
+...

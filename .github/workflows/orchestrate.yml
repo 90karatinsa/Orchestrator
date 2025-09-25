@@ -1,0 +1,70 @@
+name: Codex Orchestrator
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+concurrency:
+  group: codex-orchestrator
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install PNPM
+        run: npm i -g pnpm
+
+      - name: Install deps
+        run: pnpm install
+
+      - name: Setup Playwright (deps)
+        run: npx playwright install --with-deps
+
+      - name: Materialize cookies.json from secret
+        if: ${{ env.CODEX_UI_COOKIES_JSON != '' }}
+        env:
+          COOKIES: ${{ secrets.CODEX_COOKIES }}
+        run: |
+          if [ -n "$COOKIES" ]; then
+            echo "$COOKIES" > ./cookies.json
+          fi
+
+      - name: Start Orchestrator
+        env:
+          GITHUB_OWNER: ${{ secrets.GH_OWNER }}
+          GITHUB_REPO:  ${{ secrets.GH_REPO }}
+          BASE_BRANCH:  main
+          PR_STRATEGY:  codex
+          CODEX_DRIVER: ui
+          CODEX_UI_URL: https://chatgpt.com/codex
+          CODEX_UI_COOKIES_JSON: ./cookies.json
+          TASKS_FILE: tasks/todo.md
+          PR_EVERY: "3"
+          BATCH_SIZE: "2"
+          UI_POLL_SEC: "60"
+          GLOBAL_TIMEOUT_SEC: "900"
+          QA_ENABLED: "false"
+        run: pnpm start
+
+      - name: Upload Playwright traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            **/playwright*.zip
+            **/playwright*.trace
+            **/screenshots/**
+            **/videos/**
+          retention-days: 14
