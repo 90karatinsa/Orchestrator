@@ -31,29 +31,56 @@ jobs:
       - name: Setup Playwright (deps)
         run: npx playwright install --with-deps
 
+      # Secret'tan cookies.json yaz – secret yoksa anlamlı hata ver
       - name: Materialize cookies.json from secret
-        if: ${{ env.CODEX_UI_COOKIES_JSON != '' }}
         env:
           COOKIES: ${{ secrets.CODEX_COOKIES }}
         run: |
-          if [ -n "$COOKIES" ]; then
-            echo "$COOKIES" > ./cookies.json
+          if [ -z "$COOKIES" ]; then
+            echo "ERROR: CODEX_COOKIES secret is missing" >&2
+            exit 1
           fi
+          echo "$COOKIES" > ./cookies.json
 
       - name: Start Orchestrator
         env:
+          # GitHub hedef repo
           GITHUB_OWNER: ${{ secrets.GH_OWNER }}
           GITHUB_REPO:  ${{ secrets.GH_REPO }}
           BASE_BRANCH:  main
+
+          # Strateji
           PR_STRATEGY:  codex
           CODEX_DRIVER: ui
+
+          # Codex UI ve cookie yolu
           CODEX_UI_URL: https://chatgpt.com/codex
           CODEX_UI_COOKIES_JSON: ./cookies.json
+
+          # Çalışma parametreleri
           TASKS_FILE: tasks/todo.md
           PR_EVERY: "3"
-          BATCH_SIZE: "2"
           UI_POLL_SEC: "60"
           GLOBAL_TIMEOUT_SEC: "900"
+
+          # Dinamik batch (3<->1, başlangıç 2)
+          BATCH_MIN: "1"
+          BATCH_MAX: "3"
+          BATCH_START: "2"
+
+          # (Opsiyonel) Eski kodla uyumluluk için:
+          BATCH_SIZE: "2"
+
+          # Status fallback (UI +/− belirsizse durum özeti iste)
+          STATUS_FALLBACK_ENABLED: "true"
+          STATUS_FALLBACK_EVERY_POLLS: "3"
+          STATUS_FALLBACK_PROMPT: "Lütfen kısa durum özeti ver: her görev için (+) ya da (-) işaretiyle bitip bitmediğini yaz."
+
+          # ASK boşsa repo'yu atla ve sonra tekrar dene
+          ASK_EMPTY_SKIP_REPO: "true"
+          ASK_REPO_COOLDOWN_MIN: "30"
+
+          # QA kapalı
           QA_ENABLED: "false"
         run: pnpm start
 
