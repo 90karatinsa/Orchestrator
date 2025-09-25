@@ -27,6 +27,10 @@ export class CodexApiClient implements CodexClient {
     return '';
   }
 
+  async selectBranch(): Promise<void> {
+    logger.warn('API driver selectBranch invoked but not implemented');
+  }
+
   async getActiveBranch(): Promise<string | undefined> {
     return undefined;
   }

@@ -139,7 +139,7 @@ export async function appendNewTaskList(filePath: string, repo: string, tasks: s
   logger.info('Appended new task list for %s with %d items', repo, tasks.length);
 }
 
-export function findNextTasks(parsed: TaskFile, preferredRepo?: string): TaskItem[] {
+export function findNextTasks(parsed: TaskFile, preferredRepo?: string, skipRepos?: Set<string>): TaskItem[] {
   const repos = [...parsed.repoTasks];
   if (preferredRepo) {
     const index = repos.findIndex((repo) => repo.repo === preferredRepo);
@@ -150,6 +150,9 @@ export function findNextTasks(parsed: TaskFile, preferredRepo?: string): TaskIte
   }
 
   for (const repo of repos) {
+    if (skipRepos?.has(repo.repo)) {
+      continue;
+    }
     const pending = repo.tasks.filter((task) => !task.completed);
     if (pending.length) {
       return pending;

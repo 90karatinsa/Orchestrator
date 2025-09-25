@@ -114,9 +114,9 @@ export class CodexUIClient implements CodexClient {
     const deadline = Date.now() + this.config.globalTimeoutSeconds * 1000;
     const successes = new Set<string>();
     const failures = new Set<string>();
+    let pollsWithoutVerdict = 0;
 
-    while (Date.now() < deadline) {
-      const transcript = await this.page.locator('body').innerText();
+    const applyVerdictFromTranscript = (transcript: string) => {
       for (const item of batch) {
         const plusRegex = new RegExp(`\\+\\s*${escapeRegex(item.task.title)}`, 'i');
         const minusRegex = new RegExp(`[-✗xX]\\s*${escapeRegex(item.task.title)}`, 'i');
@@ -129,9 +129,30 @@ export class CodexUIClient implements CodexClient {
           }
         }
       }
+    };
+
+    while (Date.now() < deadline) {
+      const transcript = await this.page.locator('body').innerText();
+      applyVerdictFromTranscript(transcript);
 
       if (successes.size + failures.size >= batch.length) {
         break;
+      }
+
+      pollsWithoutVerdict += 1;
+      if (
+        this.config.statusFallbackEnabled &&
+        this.config.statusFallbackEveryPolls > 0 &&
+        pollsWithoutVerdict % this.config.statusFallbackEveryPolls === 0
+      ) {
+        logger.info('No conclusive Codex signal after %d poll(s); sending status fallback prompt', pollsWithoutVerdict);
+        await this.sendStatusFallbackPrompt();
+        await wait(2000);
+        const statusTranscript = await this.page.locator('body').innerText();
+        applyVerdictFromTranscript(statusTranscript);
+        if (successes.size + failures.size >= batch.length) {
+          break;
+        }
       }
 
       await wait(this.config.uiPollSeconds * 1000);
@@ -206,6 +227,25 @@ export class CodexUIClient implements CodexClient {
     throw new Error('Timed out waiting for ask response');
   }
 
+  async selectBranch(branch: string): Promise<void> {
+    const branchMenu = this.page.locator(this.config.selectors.branchMenu);
+    await branchMenu.waitFor({ timeout: 15000 });
+    await branchMenu.click();
+
+    const branchOption = this.page.locator(`role=option[name="${branch}"]`).first();
+    if (await branchOption.count()) {
+      await branchOption.click();
+    } else {
+      const textMatch = this.page.locator(`text="${branch}"`).first();
+      await textMatch.waitFor({ timeout: 5000 });
+      await textMatch.click();
+    }
+
+    await wait(500);
+    this.lastKnownBranch = branch;
+    logger.info('Selected branch %s via UI', branch);
+  }
+
   async getActiveBranch(): Promise<string | undefined> {
     if (this.lastKnownBranch) {
       return this.lastKnownBranch;
@@ -235,5 +275,12 @@ export class CodexUIClient implements CodexClient {
       return (await link.last().getAttribute('href')) ?? undefined;
     }
     return undefined;
+  }
+
+  private async sendStatusFallbackPrompt(): Promise<void> {
+    const composer = this.page.locator('textarea, [contenteditable="true"]').last();
+    await composer.waitFor({ timeout: 15000 });
+    await composer.fill(this.config.statusFallbackPrompt);
+    await composer.press('Enter');
   }
 }
