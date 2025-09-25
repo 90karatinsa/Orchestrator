@@ -134,12 +134,23 @@ function determineRepoForAsk(
   return undefined;
 }
 
+async function resolvePromptForRepo(context: LoopContext, repo: string): Promise<string> {
+  const customPrompt = path.join(context.config.promptsDir, `prompt_create_prompt_${repo}.md`);
+  try {
+    await fs.access(customPrompt);
+    return customPrompt;
+  } catch (error) {
+    logger.warn('Custom prompt %s missing for repo %s (%o); falling back to new_list_prompt.txt', customPrompt, repo, error);
+  }
+  return path.join(context.config.promptsDir, 'new_list_prompt.txt');
+}
+
 async function requestTasksForRepo(
   context: LoopContext,
   repo: string,
   repoContext: string,
 ): Promise<{ tasks: string[]; overflow: string[] }> {
-  const promptPath = path.join(context.config.promptsDir, 'new_list_prompt.txt');
+  const promptPath = await resolvePromptForRepo(context, repo);
   const prompt = await readPrompt(promptPath, repo, repoContext);
 
   const seen = new Set<string>();
