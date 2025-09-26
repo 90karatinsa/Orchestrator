@@ -9,27 +9,21 @@ function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+type CookieArray = Parameters<BrowserContext['addCookies']>[0];
+type CookieParam = CookieArray[number];
+
 export class CodexUIClient implements CodexClient {
   static async launch(config: AppConfig): Promise<CodexUIClient> {
     const headless = process.env.PLAYWRIGHT_HEADLESS !== 'false';
     const browser = await chromium.launch({ headless });
     const context = await browser.newContext();
 
-    if (config.codexUiCookiesPath) {
-      try {
-        const cookiesJson = await fs.readFile(config.codexUiCookiesPath, 'utf8');
-        const cookies = JSON.parse(cookiesJson);
-        await context.addCookies(cookies);
-        logger.info('Loaded cookies from %s', config.codexUiCookiesPath);
-      } catch (error) {
-        logger.warn('Unable to load cookies from %s: %o', config.codexUiCookiesPath, error);
-      }
-    }
+    const cookiesLoaded = await CodexUIClient.tryLoadCookies(context, config);
 
     const page = await context.newPage();
     await page.goto(config.codexUiUrl, { waitUntil: 'networkidle' });
 
-    const client = new CodexUIClient(config, browser, context, page);
+    const client = new CodexUIClient(config, browser, context, page, cookiesLoaded);
     await client.ensureLoggedIn();
     await client.ensureRepoSelected();
     return client;
@@ -42,16 +36,77 @@ export class CodexUIClient implements CodexClient {
     private readonly browser: Browser,
     private readonly context: BrowserContext,
     private readonly page: Page,
+    private readonly cookiesLoaded: boolean,
   ) {}
 
+  private static async tryLoadCookies(context: BrowserContext, config: AppConfig): Promise<boolean> {
+    if (!config.codexUiCookiesPath) {
+      return false;
+    }
+
+    try {
+      const cookiesJson = await fs.readFile(config.codexUiCookiesPath, 'utf8');
+      const parsed = JSON.parse(cookiesJson);
+      const cookies = CodexUIClient.normalizeCookies(parsed);
+      if (!cookies.length) {
+        logger.warn('No cookies found in %s', config.codexUiCookiesPath);
+        return false;
+      }
+      await context.addCookies(cookies);
+      logger.info('Loaded cookies from %s', config.codexUiCookiesPath);
+      return true;
+    } catch (error) {
+      logger.warn('Unable to load cookies from %s: %o', config.codexUiCookiesPath, error);
+      return false;
+    }
+  }
+
+  private static normalizeCookies(raw: unknown): CookieArray {
+    const collection = Array.isArray(raw)
+      ? raw
+      : typeof raw === 'object' && raw !== null && Array.isArray((raw as { cookies?: unknown[] }).cookies)
+        ? (raw as { cookies: unknown[] }).cookies
+        : undefined;
+
+    if (!collection) {
+      throw new Error('Cookies JSON must be an array or an object with a cookies array');
+    }
+
+    return collection.map((cookie, index) => {
+      if (typeof cookie !== 'object' || cookie === null) {
+        throw new Error(`Cookie at index ${index} is not an object`);
+      }
+
+      const result: Record<string, unknown> = { ...cookie };
+
+      if (result.sameSite !== undefined && result.sameSite !== null) {
+        const value = String(result.sameSite).trim().toLowerCase();
+        const mapped = value === 'strict' ? 'Strict' : value === 'lax' ? 'Lax' : value === 'none' ? 'None' : undefined;
+        if (mapped) {
+          result.sameSite = mapped;
+        } else {
+          const name = typeof result.name === 'string' ? result.name : `#${index}`;
+          logger.warn('Ignoring invalid sameSite "%s" for cookie %s', value, name);
+          delete result.sameSite;
+        }
+      }
+
+      return result as CookieParam;
+    });
+  }
+
   private async ensureLoggedIn(): Promise<void> {
-    if (this.config.codexUiCookiesPath) {
+    if (this.cookiesLoaded) {
       logger.info('Assuming authenticated via cookies');
       return;
     }
 
     if (!this.config.codexUiEmail || !this.config.codexUiPassword) {
-      throw new Error('CODEX_UI_EMAIL and CODEX_UI_PASSWORD must be set when cookies are not provided');
+      throw new Error(
+        this.config.codexUiCookiesPath
+          ? 'Unable to load cookies; please fix CODEX_UI_COOKIES_JSON or provide CODEX_UI_EMAIL and CODEX_UI_PASSWORD'
+          : 'CODEX_UI_EMAIL and CODEX_UI_PASSWORD must be set when cookies are not provided',
+      );
     }
 
     logger.info('Attempting interactive login with email/password');
